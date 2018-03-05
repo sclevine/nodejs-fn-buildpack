@@ -18,7 +18,7 @@ type Command interface {
 }
 
 type Stager interface {
-	BuildDir() string
+	DepDir() string
 	CacheDir() string
 	ClearCache() error
 }
@@ -29,18 +29,14 @@ type Cache struct {
 	Log                  *libbuildpack.Logger
 	NodeVersion          string
 	NPMVersion           string
-	YarnVersion          string
 	Prebuild             string
 	PackageJSONCacheDirs []string
 }
 
-var defaultCacheDirs = []string{".npm", ".cache/yarn", "bower_components"}
-
 func (c *Cache) Initialize() error {
 	var err error
 	var p struct {
-		CacheDirs1 []string `json:"cacheDirectories"`
-		CacheDirs2 []string `json:"cache_directories"`
+		CacheDirs []string `json:"cacheDirectories"`
 	}
 
 	if c.NodeVersion, err = c.findVersion("node"); err != nil {
@@ -51,13 +47,9 @@ func (c *Cache) Initialize() error {
 		return err
 	}
 
-	if c.YarnVersion, err = c.findVersion("yarn"); err != nil {
-		return err
-	}
-
 	c.Prebuild = os.Getenv("PREBUILD")
 
-	if err := libbuildpack.NewJSON().Load(filepath.Join(c.Stager.BuildDir(), "package.json"), &p); err != nil {
+	if err := libbuildpack.NewJSON().Load(filepath.Join(c.Stager.DepDir(), "invoker", "package.json"), &p); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		} else {
@@ -65,11 +57,7 @@ func (c *Cache) Initialize() error {
 		}
 	}
 
-	if len(p.CacheDirs1) > 0 {
-		c.PackageJSONCacheDirs = p.CacheDirs1
-	} else if len(p.CacheDirs2) > 0 {
-		c.PackageJSONCacheDirs = p.CacheDirs2
-	}
+	c.PackageJSONCacheDirs = p.CacheDirs
 
 	return nil
 }
@@ -83,7 +71,6 @@ func (c *Cache) Restore() error {
 			c.Log.Info("Skipping cache restore (no previous cache)")
 			return nil
 		}
-
 		return err
 	}
 
@@ -131,9 +118,9 @@ func (c *Cache) Save() error {
 		return err
 	}
 
-	dirsToRemove := []string{".npm", ".cache/yarn"}
+	dirsToRemove := []string{".npm"}
 	for _, dir := range dirsToRemove {
-		if err := os.RemoveAll(filepath.Join(c.Stager.BuildDir(), dir)); err != nil {
+		if err := os.RemoveAll(filepath.Join(c.Stager.DepDir(), "invoker", dir)); err != nil {
 			return err
 		}
 	}
@@ -144,7 +131,7 @@ func (c *Cache) Save() error {
 func (c *Cache) saveCacheDirs(dirsToSave []string) error {
 	for _, dir := range dirsToSave {
 		dest := filepath.Join(c.Stager.CacheDir(), "node", dir)
-		source := filepath.Join(c.Stager.BuildDir(), dir)
+		source := filepath.Join(c.Stager.DepDir(), "invoker", dir)
 
 		sourceExists, err := libbuildpack.FileExists(source)
 		if err != nil {
@@ -174,12 +161,12 @@ func (c *Cache) selectCacheDirs() (string, []string) {
 		return "package.json", c.PackageJSONCacheDirs
 	}
 
-	return "default", defaultCacheDirs
+	return "default", []string{".npm"}
 }
 
 func (c *Cache) restoreCacheDirs(dirsToRestore []string) error {
 	for _, dir := range dirsToRestore {
-		dest := filepath.Join(c.Stager.BuildDir(), dir)
+		dest := filepath.Join(c.Stager.DepDir(), "invoker", dir)
 		source := filepath.Join(c.Stager.CacheDir(), "node", dir)
 
 		destExists, err := libbuildpack.FileExists(dest)
@@ -221,5 +208,5 @@ func (c *Cache) findVersion(binary string) (string, error) {
 }
 
 func (c *Cache) signature() string {
-	return fmt.Sprintf("%s; %s; %s; %s", c.NodeVersion, c.NPMVersion, c.YarnVersion, c.Prebuild)
+	return fmt.Sprintf("%s; %s; %s", c.NodeVersion, c.NPMVersion, c.Prebuild)
 }
